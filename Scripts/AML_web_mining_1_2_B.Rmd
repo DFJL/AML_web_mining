@@ -1,0 +1,138 @@
+---
+output:
+  knitrBootstrap::bootstrap_document:
+    title: "AML Web Mining(Data cleaning)"
+    theme: spacelab
+    highlight: github
+    theme.chooser: TRUE
+    highlight.chooser: TRUE
+---
+#Task Nº1.2:Generar data para modelos de entrenamiento
+*Procesamiento y limpieza de los documentos para generar los modelos de entrenamiento.(documentos de clase general)*
+
+```{r CONFIGURATION,message=FALSE,warning=FALSE}
+
+
+#Lista de paquetes a utilizar
+
+paquetes <- c("tm","tm.plugin.webmining","RTextTools","topicmodels",
+                "dplyr","stringr","stargazer")
+
+#Verifica si los paquetes a utilizar están instalados, caso contrario los instala
+
+for (i in paquetes){
+  if (i %in% installed.packages()[,"Package"] == FALSE){
+    install.packages(i);
+  }
+}
+
+#Carga de paquetes
+
+sapply(paquetes,library,character.only=TRUE)
+
+
+```
+
+##Parámetros
+```{r PARAMETERS}
+
+
+#Directorios
+
+pathin<- c("C:/Users/Felipe/Dropbox/Didactico/Universidad/Maestria_Estadistica/Practica_Profesional/AML_web_mining/Datos")
+
+pathou<- c("C:/Users/Felipe/Dropbox/Didactico/Universidad/Maestria_Estadistica/Practica_Profesional/AML_web_mining/Objetos/corpus_general")
+
+setwd(pathin)
+
+
+#StopWords adicionales que no deben tomarse en cuenta
+
+#Español
+StopAdicsp<- as.vector(as.matrix(read.csv("stopwordses.csv",header = FALSE)))
+#Inglés
+StopAdicen<- as.vector(as.matrix(read.csv("stopwordsen.csv",header = FALSE)))
+
+```
+
+##Limpieza de los documentos
+```{r TEXT CLEANING}
+
+#Carga de objetos creados
+
+#corpus  <-Corpus(DirSource(pathou))
+
+hoy<- Sys.Date()
+load(paste0(pathou,"/","1b_corpusen","_",hoy,".RData"))
+load(paste0(pathou,"/","1b_corpussp","_",hoy,".RData"))
+
+#Unir los corpus en ambos idiomas
+
+corpus<-c(Tsp,Ten)
+
+#Eliminating Extra Whitespace 
+
+corpus <- tm_map(corpus, stripWhitespace)
+
+#Convert to Lower Case
+
+corpus <- tm_map(corpus, content_transformer(tolower))
+
+#Remove Numbers
+
+corpus <- tm_map(corpus, removeNumbers)
+
+#Remove Punctuation
+
+corpus <- tm_map(corpus, removePunctuation)
+
+#Identificación del lenguaje natural de los textos(para correcta aplicación del stemming)
+
+idnl<-function(corpus,languages){
+  
+  for(i in 1:length(corpus)){
+  corpus[[i]]$meta$language<-textcat(corpus[[i]]$content)
+  if (is.na(pmatch(corpus[[i]]$meta$language,languages))==FALSE) {
+  # corpus[[i]]$meta$language<-textcat(corpus[[i]]$content)
+    } else {
+  corpus[[i]]$meta$language<-str(character(0))}
+  }
+  return(corpus)
+}
+
+#Lenguages aplicar stem(solo se aplican los de mayor frecuencia ya que los otros se deben a errores de clasificación)
+languages<- c(getStemLanguages()[1:6],getStemLanguages()[12])
+
+corpus<- idnl(corpus,languages)
+
+languagedocs<- data.frame(language=unlist(meta(corpus,"language"))) %>%
+  group_by(language) %>%
+  summarise(n=n()) %>%
+  arrange(desc(n))
+
+languagedocs
+
+#Proporción de docs clasificados
+sum(languagedocs$n)/length(corpus)
+
+#Remover StopWords
+
+StopWords<- c(StopAdicsp,StopAdicen,stopwords("english"),stopwords("SMART"),stopwords("spanish"),stopwords("italian"),
+              stopwords("portuguese"),stopwords("french"))
+
+corpus<- tm_map(corpus, removeWords,StopWords)
+
+#Stemming
+
+corpus<- tm_map(corpus, stemDocument)
+
+#Comparación de texto crudo y procesado
+PlainTextDocument(corpus[[1]][1])
+
+#Guardar el objeto final
+#Guardar el objeto final
+
+save(corpus,file = paste0(pathou,"/","2b_corpusclean","_",hoy,".RData"))
+
+
+```

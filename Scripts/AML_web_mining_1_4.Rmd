@@ -1,0 +1,379 @@
+---
+title: "AML Web Mining(Data exploration)"
+author: "Felipe Jiménez"
+date: "Wednesday, May 20, 2015"
+output:
+  html_document:
+    highlight: textmate
+    theme: spacelab
+    toc: yes
+---
+#Task Nº1.4:Generar data para modelos de entrenamiento
+*Exploración de datos para entender los textos extraídos.*
+
+
+```{r CONFIGURATION,message=FALSE,warning=FALSE}
+
+#Lista de paquetes a utilizar
+
+paquetes <- c("tm","tm.plugin.webmining","RTextTools","topicmodels",
+              "RWeka","wordcloud","dplyr","data.table","stringr","stargazer","corrplot",
+              "rgdal","leaflet","networkD3")
+
+#Verifica si los paquetes a utilizar están instalados, caso contrario los instala
+
+for (i in paquetes){
+  if (i %in% installed.packages()[,"Package"] == FALSE){
+    install.packages(i);
+  }
+}
+
+#Instala paquetes solo disponibles en github/bioconductor
+if (!require("streamgraph")) devtools::install_github("hrbrmstr/streamgraph");
+library(streamgraph)
+
+# if (!require("Rgraphviz")) source("http://bioconductor.org/biocLite.R")
+# biocLite("Rgraphviz")
+# library(Rgraphviz)
+
+#Carga de paquetes
+
+invisible(sapply(paquetes,library,character.only=TRUE))
+
+
+```
+
+##Parámetros
+```{r PARAMETERS}
+
+#Directorios
+
+pathin<- c("C:/Users/Felipe/Dropbox/Didactico/Universidad/Maestria_Estadistica/Practica_Profesional/AML_web_mining/Datos")
+
+pathou<- c("C:/Users/Felipe/Dropbox/Didactico/Universidad/Maestria_Estadistica/Practica_Profesional/AML_web_mining/Objetos")
+
+setwd(pathin)
+
+#Palabras clave para buscar textos relacionados al LA/FT
+
+#Español
+AMLKEYSsp<- as.vector(as.matrix(read.csv("amlkeyssp.csv",header = FALSE,sep=";"))[,1])
+#Inglés
+AMLKEYSen<- as.vector(as.matrix(read.csv("amlkeysen.csv",header = FALSE,sep=";"))[,1])
+
+AMLKEYS<-c(AMLKEYSsp,AMLKEYSen)
+
+head(AMLKEYS)
+
+```
+
+##Exploración de data
+```{r TEXT ANALYTICS, fig.align='center',dev="png",dev.args=list(type="cairo"),dpi=96,fig.align='center',fig.height=10,fig.width=15,warning=FALSE}
+
+#Carga de objetos creados
+load(paste0(pathou,"/","3_dtmAML.RData"))
+load(paste0(pathou,"/","3_tdmAML.RData"))
+load(paste0(pathou,"/","3_dtm2AML.RData"))
+load(paste0(pathou,"/","3_dtm3AML.RData"))
+load(paste0(pathou,"/","3_dtm4AML.RData"))
+load(paste0(pathou,"/","3_dtm5AML.RData"))
+load(paste0(pathou,"/","paisesfechasAML.RData"))
+load(paste0(pathou,"/","worldAML.RData"))
+load(paste0(pathou,"/","3_dtm6AML.RData"))
+load(paste0(pathou,"/","3_tdm2AML.RData"))
+
+#----------------------------Frecuencias------------------------------------------
+
+#Se obtienen términos más frecuentes para eliminar términos no relativos al tema.
+
+termstf<-findFreqTerms(dtm1g90,30);termstf
+
+termstfidf<-findFreqTerms(dtm2gTfIdf98,3);termstfidf
+
+#Encontrar posibles sinónimos de términos con más peso
+
+findAssocs(dtm2gTfIdf98,termstfidf,.5)
+
+#Generar data frame para visualizar términos con mayor TF-IDF
+
+m <- as.matrix(tdm99)
+v <- sort(rowSums(m),decreasing=TRUE)
+d <- data.frame(word = names(v),freq=v)
+
+#Encontrar candidatos a StopWords
+
+d %>% arrange(freq) %>%
+  slice(1:50)
+  
+#Generar Word Cloud para visualizar términos más frecuentes
+
+wordcloud(d$word,d$freq,scale=c(5,0.1),min.freq=30, max.words=300,
+          random.order=FALSE, rot.per=0.35,use.r.layout=FALSE,
+          colors=brewer.pal(8,"Dark2"))
+
+#Mapa de frecuencias de noticias LAFT por país
+
+paises<- as.data.frame(paisesfechas) %>%
+  filter(fecha>=Sys.Date()-30) %>%
+    mutate(fecha=as.Date(fecha),
+           pais=pais) %>%
+  group_by(pais) %>%
+  summarise(count=n()) 
+
+#Agregar conteo de noticias al objeto sp del mapa
+count<-data.frame(pais=as.character(world$name)) %>%
+  left_join(paises) %>%
+  mutate(count=ifelse(is.na(count)==TRUE,0,count)) 
+
+world$count<-count[,2]
+
+#Generar un subset con la zona geográfica de interés
+worldsubset<-subset(world, name %in% as.matrix(paises[,1]))
+
+#paleta de colores del mapa
+
+pal <- colorBin("YlOrRd",worldsubset$count,4, pretty = TRUE)
+
+#Legenda del mapa
+
+popup <- paste0("<strong>Pais: </strong>", 
+                worldsubset$name, 
+                      "<br><strong>Cantidad Noticias </strong>", 
+                      worldsubset$count)
+
+#Mapa con la región seleccionada
+
+leaflet(worldsubset) %>% addTiles %>%
+  addPolygons(smoothFactor =0.5, fillOpacity = 0.9,stroke = FALSE,
+              color = ~pal(count),popup=popup) %>%
+    addLegend(pal = pal, values = count, opacity = 1,
+            title = "Noticias por pais")
+
+#Streamgraph de la frecuencia de noticias por pais y día
+
+paisesfechas %>%
+  mutate(fecha=as.Date(fecha),
+         pais=as.character(pais)) %>%
+  group_by(pais,fecha) %>%
+  summarise(n=n()) %>%
+  filter(fecha>=Sys.Date()-30) %>%
+  streamgraph("pais", "n", "fecha",interpolate="linear") %>%
+  sg_axis_x(.01) %>%
+  sg_fill_brewer("PuOr") %>%
+  sg_legend(show=TRUE, label="Pais: ") %>%
+  sg_fill_tableau()
+
+
+#------------------------------Asociaciones y relaciones---------------------------------------
+
+#Datos base para obtener las redes de relaciones de términos
+
+dtm2gbTfIdf99 <- removeSparseTerms(dtm2gbTfIdf,sparse=.99);dtm2gbTfIdf99
+
+paisesv<-str_to_lower(as.vector(as.matrix(paises[,1])))
+
+#-----------------------Términos de mayor relevencia------------------------------------
+
+#Generar listado de términos
+
+terms <-unique(c(findFreqTerms(dtm2gbTfIdf99,5),paisesv))
+
+#Convertir a matriz para manipular
+
+dtm<- as.matrix(dtm2gbTfIdf99)
+
+#Seleccionar términos de interés para generar matriz de correlaciones
+
+find <- colnames(dtm2gbTfIdf99) %in% terms
+dtm<-dtm[,find]
+corr<-cor(dtm)
+
+#Objetos para graficar red de relaciones de términos
+
+links<-data.frame(matrix(0,ncol(corr)*nrow(corr),3))
+nodes<-data.frame(name=rownames(corr),group=rep(1,nrow(corr)))
+
+#Llenar dataframe con las relaciones
+
+c<-1
+while(c<=nrow(links)){
+  for(j in 1:nrow(corr)){
+    for(i in 1:nrow(corr)){
+    links[c,1]<-i-1
+    links[c,2]<-j-1
+    links[c,3]<-corr[i,j]
+    c<-c+1
+  }
+}
+}
+
+#depurar dataframe de las relaciones
+
+linksf<-links %>%
+  filter(X1!=X2 & X3>0.05) 
+
+#Graficar red
+forceNetwork(Links = linksf, Nodes = nodes,
+            Source = "X1", Target = "X2",
+            Value = "X3", NodeID = "name",
+            Group = "group", opacity = 0.8,
+            #linkWidth="function(d) { return Math.sqrt(d.value/150); }"
+            )
+
+#--------------------Términos relacionados a los países------------------------------------
+
+#Generar listado de términos
+
+terms<-list()
+
+for(i in 1:nrow(paises)){
+   
+terms[[i]] <-c(rownames(findAssocs(dtm2gbTfIdf99,paisesv[i],0.25)))
+}
+
+terms<-unique(c(unlist(terms),paisesv))
+
+#Convertir dtm a  matriz para manipular
+
+dtm<- as.matrix(dtm2gbTfIdf99)
+
+#Seleccionar términos de interés para generar matriz de correlaciones
+
+find <- colnames(dtm2gbTfIdf99) %in% terms
+dtm<-dtm[,find]
+corr<-cor(dtm)
+
+#Objetos para graficar red de relaciones de términos
+
+links<-data.frame(matrix(0,ncol(corr)*nrow(corr),3))
+nodes<-data.frame(name=rownames(corr),group=rep(1,nrow(corr)))
+
+#Llenar dataframe con las relaciones
+
+c<-1
+while(c<=nrow(links)){
+  for(j in 1:nrow(corr)){
+    for(i in 1:nrow(corr)){
+    links[c,1]<-i-1
+    links[c,2]<-j-1
+    links[c,3]<-corr[i,j]
+    c<-c+1
+  }
+}
+}
+
+#depurar dataframe de las relaciones
+
+linksf<-links %>%
+  filter(X1!=X2 & X3>0.05) 
+
+#Graficar red
+forceNetwork(Links = linksf, Nodes = nodes,
+            Source = "X1", Target = "X2",
+            Value = "X3", NodeID = "name",
+            Group = "group", opacity = 0.8,
+            #linkWidth="function(d) { return Math.sqrt(d.value/150); }"
+            )
+
+#--------------Red de términos relacionados a los países individualmente-----------------
+
+#Función para plotear términos relacionados con tokens específicos
+
+plotnet<- function(DTM,token,mincorr=.2){
+
+#Generar listado de términos y objeto para guadar plot de redes
+
+token<-str_to_lower(token)
+  
+terms<-c(rownames(findAssocs(DTM,token,mincorr)),token)
+
+#Convertir dtm a  matriz para manipular
+dtm<- as.matrix(DTM)
+find <- colnames(DTM) %in% terms
+
+if(sum(find)>0){
+  
+dtm<-dtm[,find]
+corr<-cor(dtm)
+
+#Objetos para graficar red de relaciones de términos
+
+links<-data.frame(matrix(0,ncol(corr)*nrow(corr),3))
+nodes<-data.frame(name=rownames(corr),group=rep(1,nrow(corr)))
+
+#Llenar dataframe con las relaciones
+
+c<-1
+while(c<=nrow(links)){
+  for(j in 1:nrow(corr)){
+    for(i in 1:nrow(corr)){
+    links[c,1]<-i-1
+    links[c,2]<-j-1
+    links[c,3]<-corr[i,j]
+    c<-c+1
+  }
+}
+}
+
+#depurar dataframe de las relaciones
+
+linksf<-links %>%
+  filter(X1!=X2 & X3>0.1) 
+
+#Graficar red
+net<-forceNetwork(Links = linksf, Nodes = nodes,
+            Source = "X1", Target = "X2",
+            Value = "X3", NodeID = "name",
+            Group = "group", opacity = 0.8,
+            #linkWidth="function(d) { return Math.sqrt(d.value/150); }"
+            )
+}
+else if (sum(find)==0) {net=0;warning('No existen términos asociados al token')} 
+
+return(net)
+
+}
+
+#Inicializa una lista de tamaño del número de tokens
+
+nets<-vector("list",length(paisesv))
+
+#Genera las redes para cada token
+for(i in 1:length(paisesv)){
+nets[[i]]<-plotnet(dtm2gbTfIdf99,paisesv[i],mincorr=.2)
+}
+
+nets[[1]];nets[[2]];nets[[3]];nets[[4]];nets[[5]];nets[[6]];nets[[7]];nets[[8]]
+
+#Buscar asociaciones entre términos del diccionario y del DTM
+# findAssocs(tdm99,AMLKEYS,0.4)
+# 
+# dissimilarity(tdm99,method="cosine")
+# 
+# dtm<-as.matrix(dtm2gTfIdf98)
+# 
+# words <- rownames(findAssocs(tdm99,"panama",0.1))[1:10]
+# find <- colnames(dtm) %in% words
+# corr <- cor(dtm[,find])
+# corrplot(corr, type = "upper")
+# 
+# plot(tdm99, term = findFreqTerms(dtm2gTfIdf98,2), corThreshold = 0.12, weighting = T)
+# 
+# 
+# tdm<-as.matrix(tdm99)
+# # cluster terms
+# distMatrix <- dist(scale(tdm))
+# fit <- hclust(distMatrix, method = "ward.D")
+# 
+# plot(fit)
+# rect.hclust(fit, k = 6) # cut tree into 6 clusters
+# 
+
+```
+
+
+
+
+
+
+

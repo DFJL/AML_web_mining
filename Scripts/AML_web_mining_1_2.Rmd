@@ -1,0 +1,224 @@
+
+---
+title: "AML Web Mining(Data cleaning)"
+author: "Felipe Jiménez"
+date: "Wednesday, May 20, 2015"
+output:
+  html_document:
+    highlight: textmate
+    theme: spacelab
+    toc: yes
+---
+#Task Nº1.2:Generar data para modelos de entrenamiento
+*Procesamiento y limpieza de los documentos para generar los modelos de entrenamiento.*
+
+```{r CONFIGURATION,message=FALSE,warning=FALSE}
+
+
+#Lista de paquetes a utilizar
+
+paquetes <- c("tm","tm.plugin.webmining","RTextTools","topicmodels",
+                "dplyr","stringr","stargazer","textcat","rgdal","leaflet")
+
+
+#Verifica si los paquetes a utilizar están instalados, caso contrario los instala
+
+for (i in paquetes){
+  if (i %in% installed.packages()[,"Package"] == FALSE){
+    install.packages(i);
+  }
+}
+
+#Instala paquetes solo disponibles en github
+if (!require("DT")) devtools::install_github("rstudio/DT");
+library(DT)
+if (!require("SamplingUtil")) devtools::install_github("DFJL/SamplingUtil");
+library(SamplingUtil)
+
+
+#Carga de paquetes
+
+invisible(sapply(c(paquetes),library,character.only=TRUE))
+
+
+```
+
+##Parámetros
+```{r PARAMETERS}
+
+#Directorios
+
+pathin<- c("C:/Users/Felipe/Dropbox/Didactico/Universidad/Maestria_Estadistica/Practica_Profesional/AML_web_mining/Datos")
+
+pathou<- c("C:/Users/Felipe/Dropbox/Didactico/Universidad/Maestria_Estadistica/Practica_Profesional/AML_web_mining/Objetos")
+
+setwd(pathin)
+
+#StopWords adicionales que no deben tomarse en cuenta
+
+#Español
+StopAdicsp<- as.vector(as.matrix(read.csv("stopwordses.csv",header = FALSE)))
+#Inglés
+StopAdicen<- as.vector(as.matrix(read.csv("stopwordsen.csv",header = FALSE)))
+
+```
+
+##Limpieza de los documentos
+```{r TEXT CLEANING}
+
+#Carga de objetos creados
+
+load(paste0(pathou,"/","1_corpusen.RData"))
+load(paste0(pathou,"/","1_corpussp.RData"))
+
+#Unir los corpus en ambos idiomas
+
+corpus<-c(Tsp,Ten,recursive = TRUE)
+
+ndocs<-length(corpus)
+
+#----Identificar y eliminar documentos duplicados
+
+#Identifica duplicados
+
+ids<-duplicated(meta(corpus,"id"))
+
+#Elimina los duplicados identificados
+
+for(i in 1:length(corpus)){
+  corpus[[i]]$meta$duplicate<-ids[i]
+  }
+
+filter<-meta(corpus, "duplicate") == FALSE
+corpus<-corpus[filter]  
+
+#Número de duplicados identificados
+
+ndocs-length(corpus)
+
+#------------------------------------CLEANING----------------------------------------------
+
+#Función especial para remover simbolos y dejar espacio al remover
+
+removePunctuation<- content_transformer(function(x, pattern) gsub(pattern, " ", x))
+
+corpusclean<-tm_map(corpus, removePunctuation, "[[:punct:]]+")
+
+#Eliminating Extra Whitespace 
+
+corpusclean <- tm_map(corpusclean, stripWhitespace)
+
+#Convert to Lower Case
+
+corpusclean <- tm_map(corpusclean, content_transformer(tolower))
+
+#Remove Numbers
+
+corpusclean <- tm_map(corpusclean, removeNumbers)
+
+#Remove Accent
+
+#Letras con acento a reemplazar
+tildes<- c('á','é','í','ó','ú')
+replace<-c("a","e","i","o","u")
+
+for(i in 1:length(tildes)){
+  removeAccent<- content_transformer(function(x, pattern) gsub(pattern, replace[i], x))
+  corpusclean<-tm_map(corpusclean, removeAccent,tildes[i])
+}
+
+#--------Identificación del lenguaje natural de los documentos----------
+
+idnl<-function(corpus,languages){
+  
+  for(i in 1:length(corpus)){
+  corpus[[i]]$meta$language<-textcat(corpus[[i]]$content)
+  if (is.na(pmatch(corpus[[i]]$meta$language,languages))==FALSE) {
+  # corpus[[i]]$meta$language<-textcat(corpus[[i]]$content)
+    } else {
+  corpus[[i]]$meta$language<-str(character(0))}
+  }
+  return(corpus)
+}
+
+#Lenguages aplicar stem(solo se aplican los de mayor frecuencia ya que los otros se deben a errores de clasificación)
+
+languages<- c(getStemLanguages()[1:6],getStemLanguages()[12]);languages
+
+corpusclean<- invisible(idnl(corpusclean,languages))
+
+languagedocs<- data.frame(language=unlist(meta(corpusclean,"language"))) %>%
+  group_by(language) %>%
+  summarise(n=n()) %>%
+  arrange(desc(n))
+
+languagedocs
+
+#Proporción de docs clasificados
+sum(languagedocs$n)/length(corpusclean)
+
+#Remover StopWords
+
+StopWords<- c(StopAdicsp,StopAdicen,stopwords("english"),stopwords("SMART"),stopwords("spanish"),stopwords("italian"),stopwords("portuguese"),stopwords("french"))
+
+corpusclean<- tm_map(corpusclean, removeWords,StopWords)
+
+
+#Sinonimos
+
+
+ corpusclean[[100]]$content
+  removeAccent<- content_transformer(function(x, pattern) gsub(pattern,"droga", x))
+  corpusclean<-tm_map(corpusclean, removeAccent,"venezolanas")
+
+
+#Stemming
+
+corpuscleanstem<- tm_map(corpusclean, stemDocument)
+
+#Comparación de texto crudo y procesado
+Tsp[[1]]$content
+corpusclean[[1]]$content
+corpuscleanstem[[1]]$content
+
+#Guardar los objeto final
+
+save(corpusclean,file = paste0(pathou,"/","2_corpusclean.RData"))
+save(corpuscleanstem,file = paste0(pathou,"/","2_corpuscleanstem.RData"))
+
+```
+
+
+## Corroboración de los documentos extraídos
+
+*(Muestreo para estimar la proporción de Docs extraídos que son relevantes y referentes al tema LA/FT y que el lenguaje ha sido identificado correctamente)*
+
+```{r QUALITY CONTROL}
+
+#Se estima que no más del 10% de las noticias deberían ser NO referentes al tema LA/FT.
+
+p<-.1
+q<-1-p
+error<-.1
+
+#datos ficticios para recrear la variable
+x<-data.frame(x=c(rep(0,length(corpusclean)*q),rep(1,length(corpusclean)*p)))
+  
+n<-nsize(x$x,abs=error);n
+
+set.seed(1)
+muestra<- sample(1:length(corpusclean),n[[2]],replace=FALSE)
+muestra
+
+#Formato para presentar la tabla
+
+link<-paste0('<a href="',sapply(meta(corpusclean[muestra],"id"),substr,34,1000),'">',sapply(meta(corpusclean[muestra],"id"),substr,34,1000),'</a>')
+language<-sapply(meta(corpusclean[muestra],"language"),function(x) ifelse(x == "NULL", NA, x))
+fecha<-sapply(meta(corpusclean[muestra],"datetimestamp"),substr,1,10)
+
+result<-data.frame(cbind(link,language,fecha))
+
+datatable(result,rownames=FALSE,caption = 'Muestra de Documentos para verificar calidad de Procedimientos',options = list(pageLength = as.numeric(n[2]), dom = 'tip'))
+
+```
+

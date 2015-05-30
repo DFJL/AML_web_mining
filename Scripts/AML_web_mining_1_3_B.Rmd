@@ -1,0 +1,160 @@
+---
+output:
+  knitrBootstrap::bootstrap_document:
+    title: "AML Web Mining(Data preparation)"
+    theme: spacelab
+    highlight: github
+    theme.chooser: TRUE
+    highlight.chooser: TRUE
+---
+#Task Nº1.3:Generar data para modelos de entrenamiento
+*Transformación  de los documentos en objetos analizables para generar los modelos de entrenamiento.(documentos de clase general).*
+
+
+```{r CONFIGURATION,message=FALSE,warning=FALSE}
+
+#Lista de paquetes a utilizar
+
+paquetes <- c("tm","tm.plugin.webmining","RTextTools","topicmodels",
+              "RWeka","wordcloud","dplyr","stringr","stargazer")
+
+#Verifica si los paquetes a utilizar están instalados, caso contrario los instala
+
+for (i in paquetes){
+  if (i %in% installed.packages()[,"Package"] == FALSE){
+    install.packages(i);
+  }
+}
+
+#Carga de paquetes
+
+sapply(paquetes,library,character.only=TRUE)
+
+
+```
+
+##Parámetros
+```{r PARAMETERS}
+
+#Directorios
+
+pathin<- c("C:/Users/Felipe/Dropbox/Didactico/Universidad/Maestria_Estadistica/Practica_Profesional/AML_web_mining/Datos")
+
+pathou<- c("C:/Users/Felipe/Dropbox/Didactico/Universidad/Maestria_Estadistica/Practica_Profesional/AML_web_mining/Objetos/corpus_general")
+
+setwd(pathin)
+
+#Palabras clave para buscar textos relacionados al LA/FT
+
+AMLKEYS<- c("money laundering","fraud","drug",
+            "cocaine","terrorism","corruption","tax evasion",
+            "lavado dinero","lavado activos","fraude","extorsion",
+            "trata personas","terrorismo","corrupcion",
+            "droga","bitcoin","mafia","cartel","smuggling","pitufeo",
+            "mariguana","cocaina","malversacion fondos","blanqueo",
+            "contrabando","evasion impuestos","crimen organizado")
+
+#Palabras clave para buscar textos relacionados al LA/FT
+
+#Español
+AMLKEYSsp<- as.vector(as.matrix(read.csv("amlkeyssp.csv",header = FALSE,sep=";"))[,1])
+#Inglés
+AMLKEYSen<- as.vector(as.matrix(read.csv("amlkeysen.csv",header = FALSE,sep=";"))[,1])
+
+AMLKEYS<-c(AMLKEYSsp,AMLKEYSen)
+
+head(AMLKEYS)
+
+
+```
+
+##Preparación de data
+
+*Función para n-grams, Tomada de:* 
+
+[BigramTokenizer](http://stackoverflow.com/questions/8898521/finding-2-3-word-phrases-using-r-tm-package)
+
+```{r TEXT MINING PREPARATION,,warning=FALSE}
+
+#Carga de objetos creados
+hoy<- Sys.Date()
+load(paste0(pathou,"/","2b_corpusclean","_",hoy,".RData"))
+
+#Generación de DTMs según N-grams
+
+BigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 1, max = 2))
+
+#Control
+
+#control2<- list(dictionary =AMLKEYS,global = c(5, Inf),wordLengths=c(4,Inf),
+#                weighting=weightTf,tokenize=BigramTokenizer)
+
+control1<- list(global = c(5, Inf),wordLengths=c(4,Inf),
+               weighting=weightTf)
+
+control2<- list(global = c(5, Inf),wordLengths=c(4,Inf),
+               weighting=weightTf,tokenize = BigramTokenizer)
+
+#Objetos DTM
+dtm1g <- DocumentTermMatrix(corpus,control=control1)
+dtm2g <- DocumentTermMatrix(corpus,control=control2)
+
+dtm2gTfIdf <- weightTfIdf(dtm2g, normalize = TRUE)
+
+
+#Remover términos poco frecuentes
+dtm1g90 <- removeSparseTerms(dtm1g,sparse=.9)
+dtm2g98 <- removeSparseTerms(dtm2g,sparse=.98)
+
+#DTM 2-grams con TF-IDF Weight
+dtm2gTfIdf98 <- removeSparseTerms(dtm2gTfIdf,sparse=.98)
+
+#dtmterms<-inspect(dtm1g90[1:dtm1g90$nrow, 1:dtm1g90$ncol])
+
+
+
+```
+
+##Exploración de data
+```{r TEXT ANALYTICS, fig.align='center',dev="png",dev.args=list(type="cairo"),dpi=96,fig.align='center',fig.height=10,fig.width=15,warning=FALSE}
+
+#Se obtienen términos más frecuentes para eliminar términos no relativos al tema.
+findFreqTerms(dtm1g90,20)
+findFreqTerms(dtm2gTfIdf98,2)
+
+#Generar Word Cloud para visualizar términos más frecuentes
+
+tdm <- removeSparseTerms(
+  weightTfIdf(
+    TermDocumentMatrix(corpus,control=control2),
+    normalize = TRUE),
+  sparse=.98)
+
+	m <- as.matrix(tdm)
+	v <- sort(rowSums(m),decreasing=TRUE)
+	d <- data.frame(word = names(v),freq=v)
+	
+	wordcloud(d$word,d$freq,scale=c(5,0.1),min.freq=30, max.words=300,
+          random.order=FALSE, rot.per=0.35,use.r.layout=FALSE,
+          colors=brewer.pal(8,"Dark2"))
+
+#Buscar asociaciones entre términos del diccionario y del DTM
+findAssocs(dtm2gTfIdf98,AMLKEYS,0.4)
+
+#Transformar el dtm para que pueda ser leído por el modelo de tópicos
+#Se eliminan los docs que no tienen frecuencia asociada a ningún tema.
+rowTotals <- apply(dtm2gTfIdf98,1, sum)
+dtmf <- dtm2gTfIdf98[rowTotals>0,]
+
+#Comparar los dtms(con documentos sin ceros y con ceros)
+dim(dtm2gTfIdf98)
+dim(dtmf)
+
+#Guardar el objeto final
+
+save(dtmf,file = paste0(pathou,"/","3b_dtmAML","_",hoy,".RData"))
+
+
+
+```
+

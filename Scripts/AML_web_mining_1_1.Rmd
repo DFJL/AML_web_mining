@@ -1,0 +1,127 @@
+---
+title: "AML Web Mining(Data extraction)"
+author: "Felipe Jiménez"
+date: "Wednesday, May 20, 2015"
+output:
+  html_document:
+    highlight: textmate
+    theme: spacelab
+    toc: yes
+---
+#Task Nº1.1:Generar data para modelos de entrenamiento
+*Obtener vía web crawling un conjunto de documentos para generar los modelos de entrenamiento.*
+
+```{r CONFIGURATION,message=FALSE,warning=FALSE}
+
+#Lista de paquetes a utilizar
+
+paquetes <- c("tm","tm.plugin.webmining","RTextTools","topicmodels",
+                "dplyr","stringr","stargazer")
+
+#Verifica si los paquetes a utilizar están instalados, caso contrario los instala
+
+for (i in paquetes){
+  if (i %in% installed.packages()[,"Package"] == FALSE){
+    install.packages(i);
+  }
+}
+
+#Carga de paquetes
+
+invisible(sapply(paquetes,library,character.only=TRUE))
+
+```
+
+##Parámetros
+```{r PARAMETERS}
+
+#Directorios
+
+pathin<- c("C:/Users/Felipe/Dropbox/Didactico/Universidad/Maestria_Estadistica/Practica_Profesional/AML_web_mining/Datos")
+
+pathou<- c("C:/Users/Felipe/Dropbox/Didactico/Universidad/Maestria_Estadistica/Practica_Profesional/AML_web_mining/Objetos")
+
+setwd(pathin)
+
+#Palabras clave para buscar textos relacionados al LA/FT
+
+#Español
+AMLKEYSsp<- as.vector(as.matrix(read.csv("amlkeyssp.csv",header = FALSE,sep=";"))[,1])
+#Inglés
+AMLKEYSen<- as.vector(as.matrix(read.csv("amlkeysen.csv",header = FALSE,sep=";"))[,1])
+
+#Palabras clave adicionales incluídas en el día para enriquecer corpus
+#Español
+AMLKEYSspn<- read.csv("amlkeyssp.csv",header = FALSE,sep=";") %>%
+  mutate(V2=as.Date(V2,"%d/%m/%Y")) %>%
+  filter(V2==Sys.Date())
+
+AMLKEYSspn<-as.vector(as.matrix(AMLKEYSspn)[,1])
+  
+#Inglés
+AMLKEYSenn<- read.csv("amlkeysen.csv",header = FALSE,sep=";") %>%
+  mutate(V2=as.Date(V2,"%d/%m/%Y")) %>%
+  filter(V2==Sys.Date())
+
+AMLKEYSenn<-as.vector(as.matrix(AMLKEYSenn)[,1])
+
+
+```
+
+##Web Crawling(extracción de data)
+```{r CRAWLING}
+
+#Determinar la cantidad de archivos en el WD
+
+qfiles<- length(list.files(path = pathou))
+
+#Determinar si en el WD existen archivos  crear o actualizar el corpus según sea el caso.
+
+    if (qfiles==1) {
+      #Extracción de documentos en inglés
+      Ten<- WebCorpus(GoogleNewsSource(AMLKEYSen),
+                params = list(hl = "en"))
+      #Extracción de documentos en español
+      Tsp<- WebCorpus(GoogleNewsSource(AMLKEYSsp),
+                params = list(hl = "es-419"))
+    } else {
+      #Archivos a actualizar
+      file1<-list.files(path = pathou)[1]
+      file2<-list.files(path = pathou)[2]
+      #Cargar archivo WebCorpus
+      setwd(pathou)
+      load(file1)
+      load(file2)
+      #Actualizar el documento
+      Ten<- corpus.update(Ten)
+      Tsp<- corpus.update(Tsp)  
+      if(length(AMLKEYSspn)>0){
+        Tspn<- WebCorpus(GoogleNewsSource(AMLKEYSspn),
+                params = list(hl = "es-419"))
+        Tsp<-c(Tsp,Tspn)
+      } 
+      if(length(AMLKEYSenn)>0){
+        Tenn<- WebCorpus(GoogleNewsSource(AMLKEYSenn),
+                params = list(hl = "en"))
+        Ten<-c(Ten,Tenn)
+      }
+    }
+
+#Metadata ejemplo
+#meta(T1[[1]])
+
+#Corpus ejemplo
+#PlainTextDocument(T1[[1]][1])
+
+#Link de la fuente de información
+
+#T1[[1]][2]$meta$id
+#T1[[1]][2]$meta$origin
+
+#Guardar los objetos final
+
+save(Ten,file = paste0(pathou,"/","1_corpusen.RData"))
+save(Tsp,file = paste0(pathou,"/","1_corpussp.RData"))
+#save(T1,file = paste0(pathou,"/","corpus.RData"))
+
+```

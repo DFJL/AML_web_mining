@@ -1,0 +1,96 @@
+---
+output:
+  knitrBootstrap::bootstrap_document:
+    title: "AML Web Mining(Data extraction)"
+    theme: spacelab
+    highlight: github
+    theme.chooser: TRUE
+    highlight.chooser: TRUE
+---
+#Task Nº1.1:Generar data para modelos de entrenamiento
+*Obtener vía web crawling un conjunto de documentos para generar los modelos de entrenamiento(documentos de clase general).*
+
+```{r CONFIGURATION,message=FALSE,warning=FALSE}
+
+#Lista de paquetes a utilizar
+
+paquetes <- c("tm","tm.plugin.webmining","RTextTools","topicmodels",
+                "dplyr","stringr","stargazer")
+
+#Verifica si los paquetes a utilizar están instalados, caso contrario los instala
+
+for (i in paquetes){
+  if (i %in% installed.packages()[,"Package"] == FALSE){
+    install.packages(i);
+  }
+}
+
+#Carga de paquetes
+
+sapply(paquetes,library,character.only=TRUE)
+
+```
+
+##Parámetros
+```{r PARAMETERS}
+
+#Directorios
+
+pathin<- c("C:/Users/Felipe/Dropbox/Didactico/Universidad/Maestria_Estadistica/Practica_Profesional/AML_web_mining/Datos")
+
+pathou<- c("C:/Users/Felipe/Dropbox/Didactico/Universidad/Maestria_Estadistica/Practica_Profesional/AML_web_mining/Objetos/corpus_general")
+
+setwd(pathin)
+
+
+#Definir muestra de palabras para la extracción
+#set.seed(1)
+#Documentos en español
+KEYSen<-data.frame(SW=stopwords(kind = "en")) %>%
+  filter(str_length(SW)>3) %>%
+  sample_n(5)
+
+KEYSen<- as.vector(as.matrix(KEYSen))
+
+
+#Documentos en español
+KEYSsp<-data.frame(SW=stopwords(kind = "sp")) %>%
+  filter(str_length(SW)>3) %>%
+  sample_n(5)
+
+KEYSsp<- as.vector(as.matrix(KEYSsp))
+
+```
+
+##Web Crawling(extracción de data)
+```{r CRAWLING}
+
+
+#Extracción de documentos en inglés
+Ten<- WebCorpus(GoogleNewsSource(KEYSen),
+                params = list(hl = "en"))
+#Extracción de documentos en español
+Tsp<- WebCorpus(GoogleNewsSource(KEYSsp),
+                params = list(hl = "es-419"))
+
+#Metadata ejemplo
+#meta(Tsp[[1]])
+
+#Corpus ejemplo
+#PlainTextDocument(T1[[1]][1])
+
+
+#Link de la fuente de información
+
+#T1[[1]][2]$meta$id
+#T1[[1]][2]$meta$origin
+
+#Guardar los objetos final por cada día de ejecución
+
+hoy<- Sys.Date()
+
+save(Ten,file = paste0(pathou,"/","1b_corpusen","_",hoy,".RData"))
+save(Tsp,file = paste0(pathou,"/","1b_corpussp","_",hoy,".RData"))
+#save(T1,file = paste0(pathou,"/","corpus.RData"))
+
+```

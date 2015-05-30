@@ -1,0 +1,182 @@
+---
+title: "AML Web Mining(Data extraction)"
+author: "Felipe Jiménez"
+output:
+  html_document:
+    theme: spacelab
+    toc: yes
+---
+#Task Nº1:Generar data para modelos de entrenamiento
+*Generar data asociada a noticias relacionadas al LA/FT*
+
+```{r CONFIGURATION,message=FALSE}
+
+#Carga de paquetes
+paquetes <- c("tm","tm.plugin.webmining","RTextTools","topicmodels",
+                "dplyr","stringr","stargazer")
+
+lapply(paquetes,library,character.only=TRUE)
+
+```
+
+##Parámetros
+```{r PARAMETERS}
+
+#Directorio
+path<- c("C:/Users/Felipe Jiménez/Dropbox/Didactico/Universidad/Maestría en Estadística/Practica_Profesional/Resultados")
+
+setwd(path)
+
+#Palabras clave
+
+AMLKEYS<- c("money laundering","fraud","drug",
+            "cocaine","terrorism","corruption","tax evasion",
+            "lavado dinero","lavado activos","fraude","extorsion",
+            "trata personas","terrorismo","corrupcion",
+            "droga","bitcoin","mafia","cartel",
+            "mariguana","cocaina","malversacion fondos",
+            "contrabando","evasion impuestos","crimen organizado")
+
+#StopWords adicionales
+
+StopAdic<- c("new","said","rato","che","according","also","can",
+             "even","just","last","like","made","many","may","now",
+             "one","two","three","four","five","six","seven","eigth",
+             "nine","uno","dos","tres","cuatro","cinco","seis",
+             "siete","ocho","nueve","parte","three","every","use",
+             "will","year","hace","however","see","sono","sonó",
+             "solo","sino","van","well","without",
+             "april","abril","año","años","years","según",
+             "además","aunque","luego","lunes","martes","miércoles",
+             "jueves","viernes","sábado","domingo")
+
+```
+
+##Web Crawling(extracción de data)
+```{r CRAWLING}
+
+#param<-cat(CUSTOMERS[1],AMLWORDS[1])
+
+T1<- WebCorpus(GoogleNewsSource("lavado dinero"),
+                params = list(ie = "utf-8"))
+
+#Metadata
+meta(T1[[1]])
+
+#Corpus ejemplo
+corpus<-PlainTextDocument(T1[[1]][1])
+
+
+#Link de la fuente de información
+T1[[1]][2]$meta$id
+T1[[1]][2]$meta$origin
+
+```
+
+##Limpieza de los textos
+```{r TEXT CLEANING}
+
+#Eliminating Extra Whitespace 
+
+corpus <- tm_map(T1, stripWhitespace)
+
+
+#Convert to Lower Case
+
+corpus <- tm_map(corpus, content_transformer(tolower))
+
+#Remove Stopwords
+
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, removeWords, stopwords("spanish"))
+corpus <- tm_map(corpus, removeWords, stopwords("french"))
+corpus <- tm_map(corpus, removeWords, stopwords("portuguese"))
+corpus <- tm_map(corpus, removeWords, stopwords("italian"))
+
+#Remover StopWords adicionales
+
+corpus<- tm_map(corpus, removeWords,StopAdic)
+
+#Remove Numbers
+corpus <- tm_map(corpus, removeNumbers)
+
+#Remove Punctuation
+corpus <- tm_map(corpus, removePunctuation)
+
+#Stemming
+tm_map(corpus, stemDocument)
+
+```
+
+##Preparación de data
+```{r TEXT MINING PREPARATION}
+
+#Matriz de términos
+
+#dtm <- DocumentTermMatrix(corpus,control = list(dictionary =AMLKEYS,
+#                                                global = c(5, Inf),
+#                                                wordLengths=c(3,Inf),
+#                                                weighting=weightTf))
+
+dtm <- DocumentTermMatrix(corpus,control = list(global = c(5, Inf),
+                                                wordLengths=c(4,Inf),
+                                                weighting=weightTf))
+
+
+#Remover términos poco frecuentes
+dtm <- removeSparseTerms(dtm,sparse=.99)
+
+dtmterms<-inspect(dtm[1:dtm$nrow, 1:dtm$ncol])
+
+#Se obtienen términos más frecuentes para eliminar términos no relativos al tema.
+findFreqTerms(dtm,30)
+
+#Transformar el dtm para que pueda ser leído por el modelo de tópicos
+#Se eliminan los docs que no tienen frecuencia asociada a ningún tema.
+rowTotals <- apply(dtm,1, sum)
+dtmf <- dtm[rowTotals>0,]
+dim(dtmf)
+
+#Guardar el objeto final
+
+save(dtmf,file = "dtmAML.RData")
+
+```
+
+##Generación de tópicos
+```{r TEXT MINING TOPICS}
+
+# Modelo de Tópicos
+dtm_LDA <- LDA(dtmf,10)
+
+#Obtener los tópicos generados por el modelo
+topics<-matrix(terms(dtm_LDA))
+topicsdf<-data.frame(topic=paste0("V",seq(1,nrow(topics))),
+                                topic_name=topics)
+
+#Convertir a data frame para asociar los docs a los tópicos
+
+dtm_LDAdf<- as.data.frame(dtm_LDA@gamma)
+
+toptopics <- as.data.frame(cbind(document = row.names(dtm_LDAdf),
+                                 topic = apply(dtm_LDAdf,1,
+                                               function(x) names(dtm_LDAdf)[which(x==max(x))])))
+
+toptopics
+
+#Asociar los nombres de los tópicos para mostrar documento con su tópico
+
+toptopics<- left_join(toptopics,topicsdf) %>%
+  select(-topic)
+
+dtmdf<-as.data.frame(as.matrix(dtmf))
+dtmdf$doc<- rownames(dtmdf)
+
+dtmdf<- dtmdf %>%
+  select(doc) %>%
+  mutate(document= factor(seq(1,nrow(dtmdf))),
+         url= substr(doc,34,str_length(doc))) %>%
+  left_join(toptopics) %>%
+  select(-doc)
+
+```
